@@ -5,15 +5,17 @@
     gameSpeed db 40    ;velocidad del juego
     snakeAscii db '>' ; ascii of snake
     wallAscii db '$'
-    snakeX db 10      ; Snake X
-    snakeY db 5       ; Snake Y
+    snakeX db 35      ; Snake X
+    snakeY db 17       ; Snake Y
+    snakeSize db 1
     currentDir db 2  ; 0: up, 
                           ; 1: down, 
                           ; 2: left, 
                           ; 3: right,  
-    wallSize db 5
-    screenBase dw 0B800h  ; VGA text mode
+    gameSize db 15
     
+    
+    screenBase dw 0B800h  ; VGA text mode        
     wait_time db 5
 
 .code
@@ -25,7 +27,7 @@ main proc
     ; Set video mode to 80x25 text mode
     mov ax, 03h
     int 10h 
-    
+
     call draw_walls
     ;main game loop, bucle del juego
     gameloop:
@@ -88,11 +90,7 @@ input:              ;normal input, stops run
     MOV bl, al      ; se guarda el valor en bl 
     ret   
     
-draw_walls proc
-
-draw_walls endp
-
-    
+;dibujar snake y otros
 draw proc
             ;actualizar posiciones de los actores
     cmp AH, 48h     ;up arrow
@@ -201,10 +199,24 @@ remove_draw proc
 remove_draw endp
 
  
- check_col proc
-        ;checkear colisiones, if snake collides with something
-
+check_col proc
+    cmp snakeX, 33     ; Left boundary (32 + 1)
+    jl collision    
+    mov al, 33
+    add al, gameSize
+    cmp snakeX, al
+    jg collision
+    cmp snakeY, 6      ; Top boundary (5 + 1)
+    jl collision
+    mov al, 6
+    add al, gameSize
+    cmp snakeY, al
+    jg collision
     ret
+
+collision:
+    jmp exit
+check_col endp
     
 delay proc 
 delaying:  
@@ -225,6 +237,77 @@ more:
   jmp  more          ; Go see if more keys are waiting
 done:
   pop  ax
-  ret 
-  
+  ret
+        
+draw_walls proc
+    mov al, 0          ; Current size of the wall being drawn
+    mov cx, 15
+    mov dl, 32         ; Initial wall X      
+    mov dh, 5          ; Initial wall Y
+
+draw_top:
+    push cx     
+    call draw_wall  
+    inc dl
+    inc al
+    pop cx 
+    cmp al, gameSize  
+    jne draw_top
+    
+    mov dl, 32
+    mov dh, 5
+    mov al, 0
+    add dh, gameSize   ; Adjust position 
+draw_bottom:
+    push cx     
+    call draw_wall  
+    inc dl
+    inc al
+    pop cx 
+    cmp al, gameSize  
+    jne draw_bottom  
+    
+    mov dl, 32
+    mov dh, 5
+    mov al, 0
+draw_left_right:           
+    push cx     
+    call draw_wall
+    
+    add dl, gameSize
+    call draw_wall
+    sub dl, gameSize
+      
+    inc dh
+    inc al
+    pop cx 
+    cmp al, gameSize  
+    jne draw_left_right
+
+done_walls:
+    ret
+draw_walls endp
+draw_wall proc
+    push ax
+    push bx
+    push cx
+    push dx
+
+    mov ah, 02h
+    mov bh, 0
+    int 10h
+
+    mov ah, 09h
+    mov al, wallAscii
+    mov bl, 1Eh         ; amarillo fondo azul 
+    mov cx, 1
+    int 10h
+
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+draw_wall endp
+
 end main
