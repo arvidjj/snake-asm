@@ -3,10 +3,10 @@
 
 .data
     gameSpeed db 40    ;velocidad del juego
-    snakeAscii db '>' ; ascii of snake
+    snakeAscii db '>' ; ascii of snake UNUSED!
     wallAscii db '$'
-    snakeX db 35      ; Snake X
-    snakeY db 17       ; Snake Y
+    snakeX db 29      ; Snake X
+    snakeY db 11       ; Snake Y
     snakeSize db 1
     currentDir db 2  ; 0: up, 
                           ; 1: down, 
@@ -14,6 +14,10 @@
                           ; 3: right,  
     gameSize db 15
     
+    fruit db 0
+    fruitX db 21
+    fruitY db 7
+    score db 0
     
     screenBase dw 0B800h  ; VGA text mode        
     wait_time db 5
@@ -26,24 +30,21 @@ main proc
 
     ; Set video mode to 80x25 text mode
     mov ax, 03h
-    int 10h 
+    int 10h
+    
+    ;main menu
+    menu: 
 
-    call draw_walls
     ;main game loop, bucle del juego
-    gameloop:
-        call asyncinput 
+    gameloop:      
+        call asyncinput             ;input del jugador
         
-        call check_col 
-        call remove_draw
-        call draw
-        call EmptyKeyboardBuffer         
-        call delay
-     
+        call draw                   ;dibujar actores          
+        call EmptyKeyboardBuffer
+        call check_col              ;checkear colisiones
+        call delay                  ;delay del jeghuo (velocidad)
+        
         jmp gameloop
-
-    ; terminar
-    mov ah, 0
-    int 16h
     
     exit:
     ; Exit 
@@ -115,38 +116,42 @@ draw proc
     moveup:
     sub snakeY, 1 
     mov currentDir, 0  
-    mov snakeAscii, '^'
+    mov al, '^'
     jmp clear 
     
     movedown:
     add snakeY, 1   
     mov currentDir, 1  
-    mov snakeAscii, 'v'
+    mov al, 'v'
     jmp clear  
       
     moveleft:
     sub snakex, 1
     mov currentDir, 2
-    mov snakeAscii, '<'
+    mov al, '<'
     jmp clear    
     
     moveright:
     add snakex, 1
     mov currentDir, 3 
-    mov snakeAscii, '>'
+    mov al, '>'
     jmp clear
     
-        ;limpiar pantalla
+    ;limpiar pantalla
     clear:
-    ;mov ax, 3
-    ;int 10h
-        ;dl = columna
-        ; dh = fila
-draw_snake:
-    ; Draw the snake at the new position   
+    call clear_screen
+    
+draw_snake:   
+   ; Draw the snake at the new position
+   ;dl = columna
+   ; dh = fila   
+    call draw_square
     mov dl, snakeX   ; Column
     mov dh, snakeY   ; Row
     call draw_char
+    mov dl, fruitX   ; Column
+    mov dh, fruitY   ; Row
+    call check_fruit    
     ret
 draw endp
 
@@ -161,8 +166,8 @@ draw_char proc
     int 10h
 
     mov ah, 09h
-    mov al, snakeAscii
-    mov bl, 0Ch         ; red 
+    mov al, al
+    mov bl, 2fh         ; color del personaje 
     mov cx, 1
     int 10h
 
@@ -171,23 +176,20 @@ draw_char proc
     pop bx
     pop ax
     ret
-draw_char endp
-remove_draw proc
-    mov dl, snakeX   ; Column
-    mov dh, snakeY   ; Row
-    
+draw_char endp 
+draw_fruit proc
     push ax
     push bx
     push cx
     push dx
-
+    mov al, '*'
     mov ah, 02h
     mov bh, 0
     int 10h
 
     mov ah, 09h
-    mov al, ' '
-    mov bl, 0Ch         ; red 
+    mov al, al
+    mov bl, 2fh         ;fruta 
     mov cx, 1
     int 10h
 
@@ -196,25 +198,60 @@ remove_draw proc
     pop bx
     pop ax
     ret
-remove_draw endp
+draw_fruit endp  
+
+;limpiar la pantalla   
+;funcion sacada del laboratorio, es la version ams rapida que encontre
+clear_screen proc
+    push ax
+    push bx
+    push cx
+    push dx
+    mov AH, 6H 
+    mov AL, 0    
+    mov BH, 7         ;clear screen 
+    mov CX, 0
+    mov DL, 79
+    mov DH, 24
+    int 10H
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+clear_screen endp
 
  
 check_col proc
-    cmp snakeX, 33     ; Left boundary (32 + 1)
+    cmp snakeX, 20     ;left boundary (32 + 1)
     jl collision    
-    mov al, 33
-    add al, gameSize
+    mov al, 40
+    ;add al, gameSize
     cmp snakeX, al
     jg collision
-    cmp snakeY, 6      ; Top boundary (5 + 1)
+    cmp snakeY, 0      ;top boundary (5 + 1)
     jl collision
-    mov al, 6
-    add al, gameSize
+    mov al, 15
+    ;add al, gameSize
     cmp snakeY, al
     jg collision
+              
+    mov al, fruitX          
+    cmp snakeX, al
+    jne done_col
+    mov al, fruitY          
+    cmp snakeY, al
+    
+    jne done_col
+    ;Ate the fruit
+    call beep_sound
+    inc score
+    mov fruit, 0
+    
+    done_col:
     ret
 
-collision:
+    collision:
     jmp exit
 check_col endp
     
@@ -308,6 +345,54 @@ draw_wall proc
     pop bx
     pop ax
     ret
-draw_wall endp
+draw_wall endp 
+
+draw_square proc
+    push ax
+    push bx
+    push cx
+    push dx
+    mov al, 0             
+    mov ah, 6   
+
+    mov bh, 2fh  ;color
+    mov ch, 0
+    mov cl, 20
+    mov dh, 15
+    mov dl, 40
+    int 10h
+    pop dx
+    pop cx
+    pop bx
+    pop ax           
+    ret            
+draw_square endp
+
+check_fruit proc
+    push ax
+    push bx
+    push cx
+    push dx
+    cmp fruit, 1
+    je fruit_done
+    
+    mov fruitX, 22
+    mov fruitY, 12
+    call draw_fruit
+    mov fruit, 1
+    
+    fruit_done:
+    pop dx
+    pop cx
+    pop bx
+    pop ax           
+    ret
+check_fruit endp  
+
+beep_sound proc
+    mov ax, 0E07h  ; BIOS.Teletype BELL
+    int 10h            
+    ret            
+beep_sound endp
 
 end main
