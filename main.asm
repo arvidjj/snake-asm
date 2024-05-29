@@ -1,5 +1,5 @@
 .model small
-
+.stack 200h
 .data
     message db 'Seleccione un nivel:', 0Dh, 0Ah, '1. Nivel 1', 0Dh, 0Ah, '2. Nivel 2', 0Dh, 0Ah, '3. Nivel 3', 0Dh, 0Ah, 'Su eleccion: $'
     invalid_message db 0Dh, 0Ah, 'Seleccion invalida. Intente nuevamente.', 0Dh, 0Ah, '$'
@@ -7,6 +7,12 @@
     nivel2_message db 0Dh, 0Ah, 'Ha seleccionado el Nivel 2.', 0Dh, 0Ah, '$'
     nivel3_message db 0Dh, 0Ah, 'Ha seleccionado el Nivel 3.', 0Dh, 0Ah, '$'
     selectedLevel db ?
+    
+    ; Valores iniciarles
+	color_level equ 2fh  ;color del nivel
+	player_score_color equ 9d   ;Color de la puntuacion
+	screen_width equ 80d        ;tamanho de la pantalla
+	screen_hight equ 25d 
 
     head db '^',10,10
     wallAscii db '$'
@@ -14,21 +20,28 @@
     snakeY db 11
     prevSnakeX db 29
     prevSnakeY db 11
-    body db 'O',10,11, 3*15 DUP(0)
     snakeSize db 1
     currentDir db 2  ; 0: up, 1: down, 2: left, 3: right
     gameSize db 15
     fruit db 0
-    fruitX db 21
-    fruitY db 7
+    fruitX db 27
+    fruitY db 9
     score db 0
     screenBase dw 0B800h  ; VGA text mode
     waitTime db 6
-    snakeBodyX db 100 DUP(0) 
-    snakeBodyY db 100 DUP(0) 
     score_string DB 'Puntaje: ', '$'
-.stack
-    dw 128 dup(0)
+    
+    ; snake
+	; len X 2
+	snake_len dw ?
+	snake_body dw player_win_score + 3h dup(?)
+	snake_previous_last_cell dw ? 
+	snake_direction db ?
+	
+	RIGHT equ 4Dh
+	LEFT equ 4Bh
+	UP equ 48h
+	DOWN equ 50h
 .code
 main proc
     ; Inicializar segmento de datos
@@ -41,13 +54,17 @@ main proc
 
     call show_menu
 
-    call draw_square
+       
+	call INIT_GAME   
+	call clear_screen
+	call draw_square
     gameloop:
-        lea bx, score_string
-        mov dx, 0109
-        call writestringat
+        ;lea bx, score_string
+        ;mov dx, 0109
+        ;call writestringat
         call asyncinput    ;entrada del jugador
-        call draw          ;dibujar actores
+        call draw          ;dibujar actores  
+        call PRINT_SNAKE	
         call EmptyKeyboardBuffer
         call check_col     ;verificar colisiones
         call delay         ;delar
@@ -57,7 +74,42 @@ main proc
     ; Salir
     mov ah, 4Ch
     int 21h
-main endp
+main endp 
+
+INIT_GAME proc near
+	mov byte ptr [snake_direction],RIGHT
+	mov word ptr [snake_previous_last_cell],screen_width*screen_hight*2d
+	
+	call INIT_SNAKE_BODY
+
+	ret
+INIT_GAME endp	
+
+INIT_SNAKE_BODY proc near
+    mov ax, 20       ; Left boundary column
+    add ax, 10       ; Center column = 30
+
+    mov bx, 0        ; Top boundary row
+    add bx, 8        ; Center row = 8
+
+    mov cx, screen_width
+    mul bx           ; ax = screen_width * center row
+    add ax, 30       ; ax = offset + center column
+    shl ax, 1        ; Each cell is 2 bytes
+
+    mov word ptr snake_body[0d], ax
+    sub ax, 2d
+    mov word ptr snake_body[2d], ax
+    sub ax, 2d
+    mov word ptr snake_body[4d], ax
+    sub ax, 2d
+    mov word ptr snake_body[6d], ax
+
+    mov word ptr [snake_len], 6d ;en el arreglo, una porcion ocupa 2 bytes
+
+    ret
+INIT_SNAKE_BODY endp
+
 
 show_menu proc
     ; Mostrar el mensaje de selección de nivel
@@ -120,15 +172,52 @@ start_game:
     ret
 show_menu endp
 
-asyncinput proc
+asyncinput proc 
+    push ax
     mov ah, 01h
     int 16h
-    jz return
+    jz no_input
     mov ah, 00h
     int 16h
-    return:
+    cmp al, 'w'     ; Arriba
+    je moveup1
+    cmp al, 's'     ; Abajo
+    je movedown1
+    cmp al, 'a'     ; Izquierda
+    je moveleft1
+    cmp al, 'd'     ; Derecha
+    je moveright1
+    jmp no_input
+
+moveup1:
+    cmp currentDir, 1 ; No permitir moverse en dirección opuesta
+    je no_input
+    mov currentDir, 0
+    jmp no_input
+
+movedown1:
+    cmp currentDir, 0 ; No permitir moverse en dirección opuesta
+    je no_input
+    mov currentDir, 1
+    jmp no_input
+
+moveleft1:
+    cmp currentDir, 3 ; No permitir moverse en dirección opuesta
+    je no_input
+    mov currentDir, 2
+    jmp no_input
+
+moveright1:
+    cmp currentDir, 2 ; No permitir moverse en dirección opuesta
+    je no_input
+    mov currentDir, 3
+    jmp no_input
+
+no_input: 
+    pop ax
     ret
 asyncinput endp
+
 
 input proc
     mov ah, 00h
@@ -152,67 +241,152 @@ update_previous_pos proc
     pop ax
     ret
 update_previous_pos endp
+   
+draw proc near
+	push ax
+	push bx
+	; save snake_previous_last_cell(for backgroud repairing)
+	mov bx,snake_len
+	mov ax,snake_body[bx - 2d]
+	mov [snake_previous_last_cell],ax
+	
+	mov ax,snake_body[0h]
+	call SHR_ARRAY
+	; RIGHT
+	cmp byte ptr [currentDir],3
+	jz MOVE_RIGHT
+	; LEFT
+	cmp byte ptr [currentDir],2
+	jz MOVE_LEFT
+	; UP
+	cmp byte ptr [currentDir],0
+	jz MOVE_UP
+	; DOWN
+	cmp byte ptr [currentDir],1
+	jz MOVE_DOWN
 
-draw proc
-    call update_previous_pos
-    cmp AH, 48h     ; Up arrow
-    je moveup
-    cmp AH, 50h     ; Down arrow
-    je movedown
-    cmp AH, 4Bh     ; Left arrow
-    je moveleft
-    cmp AH, 4Dh     ; Right arrow
-    je moveright
+	
+	MOVE_RIGHT:
+		add ax,2d
+		jmp MOVE_TO_DIRECTION
+	MOVE_LEFT:
+		sub ax, 2d
+		jmp MOVE_TO_DIRECTION
+	MOVE_UP:
+		sub ax, screen_width*2d
+		jmp MOVE_TO_DIRECTION
+	MOVE_DOWN:
+		add ax, screen_width*2d
+		jmp MOVE_TO_DIRECTION
+		
+MOVE_TO_DIRECTION:
+	;add the new head cell
+	mov snake_body[0h],ax
+	
+	pop bx
+	pop ax
+	ret
+draw endp
 
-    ;si no se presiona ninguna tecla, ir en la direccion actual
-    cmp currentDir, 0
+PRINT_SNAKE proc near
+	push ax
+	push si
+	push bx               
+	
+	mov bx,[snake_previous_last_cell]
+	mov al,0h
+	mov ah,color_level  ;repintar la cola con verde (fondo)
+	mov es:[bx],ax
+	
+	;print head
+	cmp currentDir, 0
     je moveup
     cmp currentDir, 1
     je movedown
     cmp currentDir, 2
     je moveleft
-    cmp currentDir, 3
-    je moveright
-
-moveup:
-    sub snakeY, 1
-    mov currentDir, 0
+    cmp currentDir, 3  
+    je moveright   
+    moveup:
     mov al, '^'
-    jmp draw_loop_snake
+    jmp head_draw
 
-movedown:
-    add snakeY, 1
-    mov currentDir, 1
+    movedown:
     mov al, 'v'
-    jmp draw_loop_snake
+    jmp head_draw
 
-moveleft:
-    sub snakeX, 1
-    mov currentDir, 2
+    moveleft:
     mov al, '<'
-    jmp draw_loop_snake
+    jmp head_draw
 
-moveright:
-    add snakeX, 1
-    mov currentDir, 3
+    moveright:
     mov al, '>'
-    jmp draw_loop_snake
+    jmp head_draw  
+    
+    head_draw:
+	mov ah, 0fh
+	mov bx, snake_body[0d]
+	mov es:[bx], ax
+	;if the snake has no body(only head) - jump to the end of the function
+	cmp snake_len,2h
+	jz END_PRINT_SNAKE
+	;print the rest if the snake
+	;snake color(body)
+	mov al, 176D
+	mov ah, 10h
+	
+	mov si,2h
+	PRINT_SNAKE_LOOP:
+		mov bx, snake_body[si]
+		mov es:[bx], ax
+		;next iteration	
+		add si,2h
+		cmp si, [snake_len]
+		jnz PRINT_SNAKE_LOOP
+		
+END_PRINT_SNAKE:	
+	pop bx
+	pop si
+	pop ax
+	ret
+PRINT_SNAKE endp
+
+
 
 draw_loop_snake:
-    mov dl, snakeX   ; Columna
-    mov dh, snakeY   ; Fila
-    call draw_char
-
-    mov dl, prevSnakeX
-    mov dh, prevSnakeY
-    mov al, ' '
-    call draw_char
-
     mov dl, fruitX   ; Columna
     mov dh, fruitY   ; Fila
     call check_fruit
     ret
-draw endp
+
+
+
+generate_fruit proc
+    ; Generar nuevas coordenadas para la fruta
+    mov ax, 40 ; ancho del juego
+    call random
+    mov fruitX, al
+
+    mov ax, 15 ; alto del juego
+    call random
+    mov fruitY, al
+
+    ; Dibujar la nueva fruta
+    call draw_fruit
+    ret
+generate_fruit endp
+
+random proc
+    ; Generar número aleatorio entre 0 y AX
+    ; Suponiendo que AX contiene el máximo valor deseado
+    xor dx, dx
+    mov bx, 1234h
+    mov cx, 5678h
+    mul bx
+    add ax, cx
+    div bx
+    ret
+random endp
 
 draw_char proc
     push ax
@@ -225,7 +399,6 @@ draw_char proc
     int 10h
 
     mov ah, 09h
-    mov al, al
     mov bl, 2fh         ; color del personaje
     mov cx, 1
     int 10h
@@ -286,6 +459,27 @@ print_score proc
     ret
 print_score endp
 
+; the last cell overrided
+SHR_ARRAY proc near
+	push bx
+	push ax
+	push si
+	
+	mov si,[snake_len]
+	sub si,2h
+	L1:
+		mov ax,snake_body[si - 2h]
+		mov snake_body[si], ax
+		;next iteration
+		sub si,2h
+		cmp si,0h
+		jnz L1
+	pop si
+	pop ax
+	pop bx
+	ret
+SHR_ARRAY endp   
+
 clear_screen proc
     push ax
     push bx
@@ -297,7 +491,9 @@ clear_screen proc
     mov CX, 0
     mov DL, 79
     mov DH, 24
-    int 10H
+    int 10H  
+    ;mov ax, 03h
+	;int 10h 
     pop dx
     pop cx
     pop bx
@@ -305,16 +501,38 @@ clear_screen proc
     ret
 clear_screen endp
 
-check_col proc 
-    cmp snakeX, 20     ; limite x
+check_col proc     
+    push ax
+    push dx  
+      ; Obtener la dirección de la cabeza de la serpiente
+    mov ax, snake_body[0h] 
+    mov bx, ax
+
+    ; Calcular Y (fila)
+    mov cx, screen_width   ; 160 bytes por fila (80 columnas * 2 bytes por celda)
+    xor dx, dx    ; Limpiar DX
+    div cx        ; AX = dirección / 160, DX = dirección % 160
+    mov dh, al    ; Guardar Y en DH (Y = AX / 160)
+
+    ; Calcular X (columna)
+    mov ax, dx    ; AX ahora contiene el resto de la división anterior
+    shr ax, 1     ; Dividir el resto entre 2 para obtener X
+    mov dl, al    ; Guardar X en DL (X = resto / 2)
+
+    ; Comparar con el límite izquierdo (columna mínima)
+    cmp dl, 20
     jl collision
-    mov al, 40
-    cmp snakeX, al
+
+    ; Comparar con el límite derecho (columna máxima)
+    cmp dl, 40
     jg collision
-    cmp snakeY, 0      ; limite y
+
+    ; Comparar con el límite superior (fila mínima)
+    cmp dh, 0
     jl collision
-    mov al, 15
-    cmp snakeY, al
+
+    ; Comparar con el límite inferior (fila máxima)
+    cmp dh, 30
     jg collision
     
     ;check colision de fruta 
@@ -325,16 +543,37 @@ check_col proc
     jne done_col    
     call beep_sound
     inc score
+    inc snakeSize
     mov fruit, 0
 
-done_col:
+done_col: 
+    pop ax
+    pop dx
     ret
 
 collision:
     jmp exit
-check_col endp
+check_col endp  
 
-delay proc
+; for now, N and S(E and W is fine)
+CHECK_SNAKE_IN_BORDERS proc near
+	push ax
+	mov ax,snake_body[0h]
+	;S
+	cmp ax,screen_width*screen_hight*2h
+	jb CHECK_SNAKE_IN_BORDERS_VALID
+
+	call exit
+	
+CHECK_SNAKE_IN_BORDERS_VALID:	
+	pop ax
+	ret
+CHECK_SNAKE_IN_BORDERS endp
+
+delay proc         
+    push ax
+    push bx
+    push dx
     mov ah, 00
     int 1Ah
     mov bx, dx
@@ -342,20 +581,17 @@ jmp_delay:
     int 1Ah
     sub dx, bx
     cmp dl, waitTime
-    jl jmp_delay
+    jl jmp_delay 
+    pop ax
+    pop bx
+    pop dx
     ret
 delay endp
 
 EmptyKeyboardBuffer:
   push ax
-more:
-  mov ah, 01h
-  int 16h
-  jz done
-  mov ah, 00h
-  int 16h
-  jmp more
-done:
+  mov ah,0Ch
+  int 21h	
   pop ax
   ret
 
@@ -366,7 +602,7 @@ draw_square proc
     push dx
     mov al, 0
     mov ah, 6
-    mov bh, 2fh  ; color
+    mov bh, color_level  ; color
     mov ch, 0
     mov cl, 20
     mov dh, 15
@@ -383,7 +619,9 @@ readcharat proc
     ;Leer la direccion de memoria en base a coordenadas y retornar el caracter que esta ahi
     ;parametros: 
     ;dh: Y 
-    ;dl: X
+    ;dl: X             
+    push ax
+    push bx
     mov ah, 0           
     mov al, dh     
     mov bh, 80          
@@ -398,7 +636,9 @@ readcharat proc
     mov bx, 0B800h     
     mov es, bx          
     mov di, ax          
-    mov al, es:[di]     ; Leer valor ASCII en AL
+    mov al, es:[di]     ; Leer valor ASCII en AL     
+    pop ax
+    pop bx
     ret
 readcharat endp
 
