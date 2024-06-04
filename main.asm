@@ -646,6 +646,18 @@ check_fruit proc
     ret
 check_fruit endp 
 
+generate_fruit proc  
+    ;de 40 a 80
+    ;de 0 a 15
+    mov fruit_body, 62d + 8d*screen_width*2d
+    
+    call draw_fruit  
+    
+    mov ax, 62d + 8d*screen_width*2d
+    call read_char_at_addr
+    ret
+generate_fruit endp
+
 draw_fruit proc
     push ax
     push bx
@@ -663,21 +675,28 @@ draw_fruit proc
     ret
 draw_fruit endp
 
-generate_fruit proc
-    mov ax, 25       ; x de la fruta
+; Esto servira para los obstaculos
+; Leer el caracter ASCII en la direccion de memoria de video especificada
+; Parametros:
+;   ax: Direccion de memoria de video
+; Resultado:
+;   al: Carácter ASCII leido de la memoria de video
+read_char_at_addr proc
+    push bx
+    push di
 
-    mov bx, 3        ; y de la fruta
+    ; Configurar el segmento de memoria de video
+    mov bx, 0B800h        ; Segmento de memoria de video en modo texto VGA
+    mov es, bx
+    mov di, ax            ; Direccion efectiva
 
-    mov cx, screen_width
-    mul bx           ; ax = screen_width * center row
-    add ax, 30       ; ax = offset + center column
-    shl ax, 1        ; Each cell is 2 bytes
-    mov fruit_body, ax
-    
-    call draw_fruit
+    ; Leer el caracter ASCII en AL
+    mov al, es:[di]
+
+    pop di
+    pop bx
     ret
-generate_fruit endp
-
+read_char_at_addr endp
 
 beep_sound proc
     mov ax, 0E07h  ; BIOS.Teletype BELL
