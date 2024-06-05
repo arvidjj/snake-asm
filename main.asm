@@ -66,9 +66,9 @@ main proc
     call draw_square 
     call mostrar_puntuacion    
     ;si es dificil, poner obstaculos (doesn't work)
-    cmp selectedLevel, 3
-    jne gameloop
-    call pintar_obstaculos 
+    ;cmp selectedLevel, 3
+    ;jne gameloop
+    ;call pintar_obstaculos 
     gameloop:
         call asyncinput    ;entrada del jugador
         call mover_snake          ;dibujar actores  
@@ -88,6 +88,7 @@ main endp
 iniciar_variables proc near                                               
     mov word ptr [snake_previous_last_cell],screen_width*screen_hight*2d  
     mov fruit, 0  
+    mov currentDir, 3
     iniciar_snake:
     mov ax, 30       ; 20 (boundary x) + 10 (centro)
 
@@ -196,7 +197,7 @@ show_menu proc
     cmp selectedLevel, 3
     jg invalid_selection
 
-    ; La seleccion es valida, proceder segun el nivel seleccionado
+    ;Si La seleccion es valida, proceder segun el nivel seleccionado
     cmp selectedLevel, 1
     je nivel1
     cmp selectedLevel, 2
@@ -204,9 +205,9 @@ show_menu proc
     cmp selectedLevel, 3
     je nivel3
 
-    ; Si se ingresa una selección inválida, mostrar un mensaje de error y volver a mostrar el menú
+    ; Si se ingresa una seleccion invalida, mostrar un mensaje de error y volver a mostrar el menú
 invalid_selection:
-    mov ah, 09h
+    mov ah, 09h ; especifica la funcion para escribir cadena
     lea dx, invalid_message
     int 21h
     jmp show_menu
@@ -217,7 +218,7 @@ nivel1:
     lea dx, nivel1_message
     int 21h 
     mov color_level, 3fh  ;color de bebe (facil) 
-    mov waitTime, 20
+    mov waitTime, 20 ; tiempo de reloj(tiempo en el que se va mover el snake)
     jmp start_game
 
 nivel2:
@@ -547,15 +548,15 @@ collision_die:
     mov dl, 25
     int 10h
 
-    ; mostrar el mensaje
+    ; mostrar el mensaje de que perdio el juego
     mov dx, offset loseMessage
     mov ah, 09h
     int 21h
     
     ;reiniciar
-    mov waitTime, 40  
-    call delay
-    call clear_screen
+    mov waitTime, 40 ; se reinicia el tiempo  
+    call delay; le digo al delay que espere 
+    call clear_screen ;limpio la pantalla
     jmp reset                       
 check_col endp       
 
@@ -609,9 +610,9 @@ delay proc
     int 1Ah   ;interrupcion 1ah, leer timer del sistema
     mov bx, dx
 jmp_delay:
-    int 1Ah
-    sub dx, bx
-    cmp dl, waitTime
+    int 1Ah  ; obtener el contador actual del sistema
+    sub dx, bx ; resto el valor de bx y dx para obtener el tiempo que paso
+    cmp dl, waitTime ;comparo el byte menos significativo
     jl jmp_delay 
     pop ax
     pop bx
@@ -833,9 +834,9 @@ read_char_at_addr proc
 read_char_at_addr endp
 
 beep_sound proc
-    mov ax, 0E07h  ; BIOS.Teletype BELL
-    int 10h                              
-    call incrementar_contador
+    mov ax, 0E07h  ; coloco el beep en ax
+    int 10h ;hago la interrupcion para realizar el beep                           
+    call incrementar_contador ; incrementamos el contador despues de comer
     ret
 beep_sound endp
 
