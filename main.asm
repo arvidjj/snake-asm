@@ -8,6 +8,12 @@
     nivel3_message db 0Dh, 0Ah, 'Ha seleccionado el Nivel 3.', 0Dh, 0Ah, '$'
     selectedLevel db ?
     
+    ;arreglo de rng para valores aleatorios
+    seedArray dw 155, 255, 300, 400, 500, 600, 700, 800, 900, 1000
+    seedArraySize equ 10
+    seedPointer dw 0  
+    attempts dw 0
+    
     ; Valores iniciarles
 	color_level equ 2fh  ;color del nivel
 	player_score_color equ 9d   ;Color de la puntuacion
@@ -17,9 +23,7 @@
     head db '^',10,10
     snakeSize db 1
     gameSize db 15
-    fruit db 0
-    fruitX db 27
-    fruitY db 9
+    fruit db 0      ;boolean to check if fruit is in game
     score db 0
     screenBase dw 0B800h  ; VGA text mode
     waitTime db 2
@@ -55,7 +59,8 @@ main proc
     call show_menu
 
        
-	call iniciar_variables   
+	call iniciar_variables 
+	call init_rng_array   ; Initialize RNG array pointer  
 	call clear_screen
 	call draw_square 
 
@@ -332,7 +337,7 @@ draw_snake proc near
 	;empezar bucle de dibujo del cuerpo
 	;snake color(body)
 	;mov al, 178d   
-	mov al, 219d
+	mov al, 219d    ;ascii de snake
 	mov ah, 0fh
 	
 	mov si,2h
@@ -458,32 +463,50 @@ check_col proc
 
     ;limite izquierdo (columna minima)
     cmp dl, 20
-    jl collision
+    jl collision_die
 
     ;limite derecho (columna maxima)
     cmp dl, 40
-    jg collision
+    jg collision_die
 
     ;limite superior (fila minima)
     cmp dh, 0
-    jl collision
+    jl collision_die
 
     ;limite inferior (fila maxima)
     cmp dh, 30
-    jg collision
+    jg collision_die
     
     ;check colision de fruta  
     call readcharat
-    call check_snake_col_fruit 
+    call check_snake_col_fruit  
+    call check_snake_col_himself
 
 done_col: 
     pop ax
     pop dx
     ret  
 
-collision:
+collision_die: 
+    ;primero pintar la colision de rojo
+    mov al, 184d
+    mov ah, 05h   ;color
+	mov bx, snake_body[0d]
+	mov es:[bx], ax  
     jmp exit
-check_col endp
+check_col endp       
+
+check_snake_col_himself proc
+    push ax
+    push bx  
+    mov ax, snake_body[0]
+    call read_char_at_addr
+    cmp al, 219d 
+    je collision_die
+    pop bx
+    pop ax
+    ret
+check_snake_col_himself endp
 
 check_snake_col_fruit proc
     push ax
@@ -632,7 +655,7 @@ check_fruit proc
     push cx  
     push dx 
     cmp fruit, 0
-    jne fruit_done
+    jg fruit_done
     ;se necesita un proc que genere un numero de
     ;20 a 40
     ;0 a 15   
@@ -644,19 +667,88 @@ check_fruit proc
     pop bx
     pop ax
     ret
-check_fruit endp 
+check_fruit endp  
 
-generate_fruit proc  
-    ;de 40 a 80
-    ;de 0 a 15
-    mov fruit_body, 62d + 8d*screen_width*2d
+; Procedure to initialize the RNG seed using system timer
+init_rng_array proc
+    mov seedPointer, 0
+    ret
+init_rng_array endp   
+
+;avanzar el puntero, esto puede ser llamado cada tic o cada spawn ( decision del programador)   
+;inspirado en doom
+get_next_random proc
+    push bx
+    push si
+
+    ;obtener lo que esta apuntando el punteor ahroa y guardar en ax para retornar
+    mov si, seedPointer
+    mov ax, seedArray[si]
+
+    ;avanzar el puntero
+    add si, 2
+    cmp si, seedArraySize * 2
+    jl no_wrap
+    ;wrap al llegar al final
+    mov si, 0
+no_wrap:
+    mov seedPointer, si
+
+    pop si
+    pop bx
+    ret
+get_next_random endp
+
+
+generate_fruit proc     
+    mov attempts, 0
+    new_position:
+    cmp attempts, 100
+    je failsafe_draw
     
-    call draw_fruit  
+    call get_next_random
+
+    ; esta formula se asegura de que x caiga en las boundaries del juego    
+    ;20 a 40
+    xor dx, dx
+    mov bx, 21  ; range_size (41 - 20 + 1)
+    div bx      ; ax / bx, resultado in AX, lo que sobra in DX
+    add dx, 20  ; add min_value (20)
+    mov bx, dx  ; guardar la posicion X en bx 
+
+    call get_next_random
+
+    ; esta formula se asegura de que y caiga en las boundaries del juego 
+    ;0 a 15
+    xor dx, dx
+    push bx
+    mov bx, 16  ; range_size (16 - 0 + 1)
+    div bx      ; ax / bx, resultado in AX, guardar la posicion Y en dx(lo que sobra)   
+    pop bx      ; BX still holds the X position
     
-    mov ax, 62d + 8d*screen_width*2d
+    ;Hallar direccion de memoria del video donde pintar la fruta (formula sacada de internet)
+    mov ax, dx
+    mov cx, screen_width
+    mul cx      ; Multiply Y by screen width (DX * 80), result in AX
+    add ax, bx  ; Add the X position (AX + BX)
+    shl ax, 1   ; Multiply by 2 for VGA text mode (AX * 2)
+    mov fruit_body, ax  ; Store the calculated address in fruit_body
+    
+    ;checkear si la serpiente esta en esa posicion, si no volver a probar 100 veces, si no se pudo, moverse
+    add attempts, 1
     call read_char_at_addr
+    cmp al, 219d     ;snake body ascii compare
+    je new_position 
+    
+    call draw_fruit 
+    
+    failsafe_draw:
+    
+
     ret
 generate_fruit endp
+
+
 
 draw_fruit proc
     push ax
